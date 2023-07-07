@@ -1912,7 +1912,7 @@ enum GCDAsyncSocketConfig
 		
 		if (interface == nil)
 		{
-			NSString *msg = @"Invalid unix domain url. Specify a valid file url that does not exist (e.g. \"file:///tmp/socket\")";
+            NSString *msg = @"Invalid unix domain url. Specify a valid file url that does not exist and fits in sockaddr_un.sun_path (e.g. \"file:///tmp/socket\")";
 			err = [self badParamError:msg];
 			
 			return_from_block;
@@ -4246,12 +4246,50 @@ enum GCDAsyncSocketConfig
 	}
 	
     struct sockaddr_un nativeAddr;
+    const char *fs_path = [path fileSystemRepresentation];
+    int sun_path_len = sizeof(nativeAddr.sun_path);
+    if (strlen(fs_path) > sun_path_len - 1) {
+        // Path doesn't fit in sockaddr_un structure.
+        // Lets see if a relative path would fit.
+        path = [self getRelativePathFromPath:[[NSFileManager defaultManager] currentDirectoryPath]
+                                      toPath:path];
+        fs_path = [path fileSystemRepresentation];
+        if (strlen(fs_path) > sun_path_len - 1) {
+            return nil;
+        }
+    }
+    
     nativeAddr.sun_family = AF_UNIX;
     strlcpy(nativeAddr.sun_path, path.fileSystemRepresentation, sizeof(nativeAddr.sun_path));
     nativeAddr.sun_len = (unsigned char)SUN_LEN(&nativeAddr);
     NSData *interface = [NSData dataWithBytes:&nativeAddr length:sizeof(struct sockaddr_un)];
 	
 	return interface;
+}
+
+- (NSString *)getRelativePathFromPath:(NSString *)sourcePath toPath:(NSString *)targetPath
+{
+    sourcePath = [sourcePath stringByStandardizingPath];
+    targetPath = [targetPath stringByStandardizingPath];
+    
+    NSString *relativePath = @"";
+    
+    NSString *currentPath = sourcePath;
+    
+    // navigate upwards
+    while (![targetPath hasPrefix:currentPath]) {
+        relativePath = [relativePath stringByAppendingPathComponent:@".."];
+        currentPath = [[sourcePath stringByAppendingPathComponent:relativePath] stringByStandardizingPath];
+    }
+    
+    // now navigate downwards
+    NSArray *currentPathComponents = [currentPath pathComponents];
+    NSArray *targetPathComponents = [targetPath pathComponents];
+    NSArray *pathComponents = [targetPathComponents subarrayWithRange:NSMakeRange(currentPathComponents.count, targetPathComponents.count - currentPathComponents.count)];
+    for (NSString *pathComponent in pathComponents) {
+        relativePath = [relativePath stringByAppendingPathComponent:pathComponent];
+    }
+    return relativePath;
 }
 
 - (void)setupReadAndWriteSourcesForNewlyConnectedSocket:(int)socketFD
