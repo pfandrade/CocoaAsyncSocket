@@ -8156,8 +8156,9 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 	
 	if (socket4FD != SOCKET_NULL)
 		return socket4FD;
-	else
+	if (socket6FD != SOCKET_NULL)
 		return socket6FD;
+	return socketUN;
 }
 
 /**
